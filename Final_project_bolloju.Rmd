@@ -1,0 +1,327 @@
+---
+title: "Comparing Student’s Pooled t-test vs. Welch’s t-test"
+author: "Rahul Teja Bolloju"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Student’s Pooled t-test vs. Welch’s t-test
+Perform Monte Carlo simulations which estimate the power of Student’s pooled t-test and Welch’s t-test, making explicit comparisons between these two procedures. Note that both of these tests are implemented in R with the t.test() function (using the argument var.equal=TRUE for the pooled t-test).
+
+Your simulations should sample from normal populations, varying the sample sizes n1 and n2, as well as the population standard deviations σ1 and σ2. Your goal should be to see when Student’s pooled t-test has a greater power than Welch’s t-test, or vice versa.
+
+Create several plots of the power curves of these two tests (with the power of both Student’s pooled t-test and Welch’s t-test on the same set of axes, to make for easier comparison). Throughly investigate and discuss any evident patterns.
+
+
+
+# Introduction
+
+Aims to compare the power of Student’s pooled t-test and Welch’s t-test through Monte Carlo simulations. Both tests are implemented in R using the `t.test()` function, with the argument `var.equal=TRUE` for the pooled t-test.
+
+### Student's Pooled t-test:
+
+- This test assumes that the variances of the two groups being compared are equal.
+- It combines the variances of the two groups into a single pooled estimate, assuming they are representative of the overall population variance.
+- It then calculates the t-statistic based on this pooled variance.
+- Pooled t-tests are used when you are reasonably confident that the variances of the two groups being compared are approximately equal.
+
+### Welch's t-test:
+
+- Welch's t-test does not assume equal variances between the two groups.
+- It's a more robust alternative when the assumption of equal variances is violated or when you're unsure about the equality of variances.
+- It calculates the t-statistic by adjusting for the unequal variances of the two groups.
+- Welch's t-test provides a more accurate result when the sample sizes and variances between the groups are different.
+
+
+## Objective
+The goal is to investigate scenarios where one test exhibits greater power than the other. The simulations involve sampling from normal populations while varying sample sizes (`n1` and `n2`) and population standard deviations (`σ1` and `σ2`).
+
+
+## Simulations
+
+```{r}
+# Function for pooled t-test
+pooled_t_test <- function(sample1, sample2) {
+  test <- t.test(sample1, sample2, var.equal = TRUE)
+  return(test)
+}
+
+# Function for Welch's t-test
+welch_t_test <- function(sample1, sample2) {
+  test <- t.test(sample1, sample2, var.equal = FALSE)
+  return(test)
+}
+```
+
+These functions above take two samples and perform a Student’s pooled t-test and Welch’s t-test based on the `var.equal` argument. By specifying independently `var.equal` to conduct specific tests. 
+
+`var.equal=TRUE` for the Student’s pooled t-test
+`var.equal=FALSE` for the Welch’s t-test
+
+
+```{r}
+# Function calculates power
+calculate_power <- function(n1, n2, sd1, sd2, true_difference, reps = 1000) {
+  # Initialize counters for significant results
+  pooled_sig <- 0
+  welch_sig <- 0
+  
+  for (i in 1:reps) {
+    # Generate random samples from normal distributions
+    sample1 <- rnorm(n1, mean = 0, sd = sd1)
+    sample2 <- rnorm(n2, mean = true_difference, sd = sd2)
+    
+    # Perform t-tests using separate functions
+    pooled_test <- pooled_t_test(sample1, sample2)
+    welch_test <- welch_t_test(sample1, sample2)
+    
+    # Check for significance
+    if (pooled_test$p.value < 0.05) {
+      pooled_sig <- pooled_sig + 1
+    }
+    if (welch_test$p.value < 0.05) {
+      welch_sig <- welch_sig + 1
+    }
+  }
+  
+  # Calculate power
+  pooled_power <- pooled_sig / reps
+  welch_power <- welch_sig / reps
+  
+  return(list(pooled_power = pooled_power, welch_power = welch_power))
+}
+```
+
+
+```{r}
+# Parameters
+n1_values = c(15, 25, 45, 50)
+n2_values = c(35, 45, 25, 50)
+
+sd1_values <- c(1, 2, 3, 4)
+sd2_values <- c(3, 4, 1, 2)
+
+mean_diff_values <- seq(0.5, 2, by = 0.2)
+```
+
+
+```{r,  eval=FALSE}
+# Create a data frame to store results
+results <- data.frame()
+
+# Perform simulations for different sample sizes, standard deviations, and mean differences
+for (n1 in n1_values) {
+  for (n2 in n2_values) {
+    for (sd1 in sd1_values) {
+      for (sd2 in sd2_values) {
+        for (mean_diff in mean_diff_values) {
+          powers <- calculate_power(n1, n2, sd1, sd2, true_difference = mean_diff)
+          results <- rbind(results, data.frame(
+            n1 = n1,
+            n2 = n2,
+            sd1 = sd1,
+            sd2 = sd2,
+            mean_difference = mean_diff,
+            pooled_power = powers$pooled_power,
+            welch_power = powers$welch_power
+          ))
+        }
+      }
+    }
+  }
+}
+  
+# head(results)
+```
+
+```{r, eval=FALSE}
+save(results, file = "results.Rdata")
+```
+
+```{r}
+load("results.Rdata")
+head(results)
+```
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+df <- results
+
+# Gather the power values for plotting
+plot_data <- tidyr::gather(df, key = "power_type", value = "power", pooled_power, welch_power)
+
+# Aggregate the power values for the same mean_difference
+aggregated_data <- plot_data %>%
+  group_by(mean_difference, power_type) %>%
+  summarise(avg_power = mean(power), .groups = "drop")
+
+# head(aggregated_data)
+
+# Create a plot showcasing aggregated power values
+ggplot(aggregated_data, aes(x = mean_difference, y = avg_power, color = power_type)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("blue", "red"), labels = c("Pooled t-test", "Welch t-test")) +
+  labs(x = "Mean Difference", y = "Aggregated Power", title = "Aggregated Comparison of Pooled Power and Welch Power") +
+  theme_minimal()
+
+```
+
+We can observe in the plot above the comparison between the aggregated power and mean difference for both the pooled t-test and Welch's t-test. The plot showcases the relationship between these statistical methods and how they perform concerning both power and mean difference, offering a visual representation of their effectiveness in different scenarios.
+
+So, we'll investigate various sample sizes and closely observe the changes in statistical power.
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+df <- results
+plots_list <- list()
+
+for (size in n1_values) {
+  # Subset data for the current sample size
+  subset_data <- df %>% filter(n1 == size)  
+  
+  # Gather the power values for plotting
+  plot_data <- tidyr::gather(subset_data, key = "power_type", value = "power", pooled_power, welch_power)
+  
+  # Aggregate the power values for the same mean_difference
+  aggregated_data <- plot_data %>%
+    group_by(mean_difference, power_type) %>%
+    summarise(avg_power = mean(power), .groups = "drop")
+  
+  # Create a plot for the current sample size
+  plot <- ggplot(aggregated_data, aes(x = mean_difference, y = avg_power, color = power_type)) +
+    geom_line() +
+    geom_point() +
+    scale_color_manual(values = c("blue", "red"), labels = c("Pooled t-test", "Welch t-test")) +
+    labs(x = "Mean Difference", y = "Aggregated Power", title = paste("Sample Size:", size)) +
+    theme_minimal()
+  
+  plots_list[[as.character(size)]] <- plot
+}
+
+# View the plots
+plots_list
+
+```
+
+By altering the sample sizes, we can observe that there's no noticeable change in the plots. Both still exhibit the same line overlapping each other.
+
+Let's now take a closer look at the plots as we vary the variances.
+
+```{r}
+# Load necessary library
+library(ggplot2)
+library(dplyr)
+
+df <- results
+plot_list <- list()
+
+# Iterate through each standard deviation value
+for (sd_value in sd1_values) {
+
+  # Create a plot for each standard deviation scenario
+  plot <- ggplot(aggregated_data, aes(x = mean_difference, y = avg_power, color = power_type)) +
+    geom_line() +
+    geom_point() +
+    scale_color_manual(values = c("blue", "red"), labels = c("Pooled t-test", "Welch t-test")) +
+    labs(x = "Mean Difference", y = "Aggregated Power",
+         title = paste("Effect of Standard Deviation (SD =", sd_value, ")", sep = " ")) +
+    theme_minimal()
+
+  # Append the plot to the list
+  plot_list[[as.character(sd_value)]] <- plot
+}
+
+plot_list
+
+```
+
+Even when we change the variances, the plots still look the same.
+
+
+Let's now take a closer look at the plots as we vary the samples and variances. 
+
+```{r}
+
+plot_list <- list()
+
+# Loop through each combination
+for (n1_val in n1_values) {
+  for (n2_val in n2_values) {
+    for (sd1_val in sd1_values) {
+      # Filter the data for the current combination
+      filtered_data <- df %>%
+        filter(n1 == n1_val & n2 == n2_val, sd1 == sd1_val)
+      
+      # Perform actions on the filtered data to create the plot
+      plot_data <- tidyr::gather(filtered_data, key = "power_type", value = "power", pooled_power, welch_power)
+      
+      aggregated_data <- plot_data %>%
+        group_by(mean_difference, power_type) %>%
+        summarise(avg_power = mean(power), .groups = "drop")
+      
+      # Store the plot in the list
+      plot <- ggplot(aggregated_data, aes(x = mean_difference, y = avg_power, color = power_type)) +
+        geom_line() +
+        geom_point() +
+        scale_color_manual(values = c("blue", "red"), labels = c("Pooled t-test", "Welch t-test")) +
+        labs(x = "Mean Difference", y = "Aggregated Power", 
+             title = paste("Scenario: n1 =", n1_val, "n2 =", n2_val, "sd1 =", sd1_val)) +
+        theme_minimal()
+      
+      plot_list[[paste("n1", n1_val, "n2", n2_val, "sd1", sd1_val)]] <- plot
+    }
+  }
+}
+
+# plot_list
+```
+
+In total, we generated 64 plots, but I'm sharing only a select few that are clearer and easier to observe.
+
+```{r}
+plot_list[2]
+plot_list[6]
+
+
+plot_list[39]
+
+plot_list[52]
+plot_list[60]
+```
+
+- Impact of Sample Size: As sample sizes increase, the power of Welch's t-test tends to become more consistent compared to the pooled t-test.
+- Effect of Standard Deviation: Higher discrepancies in standard deviations tend to favor Welch's t-test, showcasing higher power in such scenarios.
+
+# Conclusion
+
+The choice between Student’s pooled t-test and Welch’s t-test should consider factors such as sample sizes and standard deviations. Welch's test does a better job overall when there is slightly more variance.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
